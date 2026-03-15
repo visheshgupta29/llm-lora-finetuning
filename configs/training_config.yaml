@@ -1,0 +1,124 @@
+# ═══════════════════════════════════════════════════════════
+#  QLoRA Fine-Tuning Configuration — Text-to-SQL
+# ═══════════════════════════════════════════════════════════
+
+# ─── Model ────────────────────────────────────────────────
+model:
+  name: "mistralai/Mistral-7B-v0.3"
+  # Alternatives:
+  #   - "meta-llama/Llama-3.1-8B"
+  #   - "Qwen/Qwen2-7B"
+  #   - "microsoft/Phi-3-medium-4k-instruct"
+  #   - "codellama/CodeLlama-7b-hf"
+  max_seq_length: 1024
+  trust_remote_code: false
+  # Set to "auto" to use all available GPUs, or specific device
+  device_map: "auto"
+
+# ─── Quantization (BitsAndBytes) ─────────────────────────
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"          # nf4 > fp4 for quality
+  bnb_4bit_compute_dtype: "bfloat16"  # bfloat16 for Ampere+, float16 otherwise
+  bnb_4bit_use_double_quant: true     # Nested quantization saves ~0.4 GB
+
+# ─── LoRA ─────────────────────────────────────────────────
+lora:
+  r: 16                    # Rank — higher = more capacity, more VRAM
+  alpha: 32                # Scaling factor — standard is alpha = 2 * r
+  dropout: 0.05            # Regularization
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  # Target all linear layers for maximum quality
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+# ─── Dataset ──────────────────────────────────────────────
+dataset:
+  name: "b-mc2/sql-create-context"
+  # Alternative: "clinton/Text-to-sql-v1"
+  train_split: "train"
+  test_size: 0.1               # 10% held out for eval
+  seed: 42
+  # Max samples for quick debugging (set null for full dataset)
+  max_train_samples: null
+  max_eval_samples: null
+  # Paths for processed data
+  processed_dir: "data/processed"
+
+# ─── Training ─────────────────────────────────────────────
+training:
+  output_dir: "outputs"
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 4     # Effective batch size = 4 * 4 = 16
+  gradient_checkpointing: true       # Trades compute for VRAM
+  
+  # Optimizer
+  optim: "paged_adamw_8bit"          # 8-bit paged optimizer — saves VRAM
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  max_grad_norm: 0.3                 # Gradient clipping
+  
+  # LR Schedule
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  
+  # Logging
+  logging_steps: 10
+  logging_first_step: true
+  
+  # Evaluation
+  eval_strategy: "steps"
+  eval_steps: 100
+  
+  # Checkpointing
+  save_strategy: "steps"
+  save_steps: 100
+  save_total_limit: 3
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
+  
+  # Misc
+  bf16: true                         # Use bfloat16 mixed precision
+  tf32: true                         # TF32 on Ampere GPUs
+  seed: 42
+  dataloader_num_workers: 4
+  report_to: "wandb"                 # "wandb", "tensorboard", or "none"
+  run_name: "mistral-7b-qlora-text2sql"
+
+# ─── SFT (Supervised Fine-Tuning) ────────────────────────
+sft:
+  max_seq_length: 1024
+  packing: false                     # Set true for short sequences
+  neftune_noise_alpha: 5             # NEFTune — adds noise to embeddings for regularization
+
+# ─── Inference ────────────────────────────────────────────
+inference:
+  max_new_tokens: 256
+  temperature: 0.1
+  top_p: 0.9
+  do_sample: true
+  repetition_penalty: 1.1
+
+# ─── Evaluation ───────────────────────────────────────────
+evaluation:
+  num_samples: 500                   # Samples for evaluation
+  run_execution_accuracy: true       # Execute SQL against SQLite
+  run_bleu: true
+  run_exact_match: true
+  output_file: "outputs/eval_results.json"
+
+# ─── Hub / Deployment ────────────────────────────────────
+hub:
+  push_to_hub: false
+  hub_model_id: "visheshgupta29/mistral-7b-text2sql-qlora"
+  hub_private: false

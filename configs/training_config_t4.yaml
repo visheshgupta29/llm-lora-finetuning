@@ -1,0 +1,128 @@
+# ═══════════════════════════════════════════════════════════════
+#  QLoRA Fine-Tuning — T4 / Free Tier Optimized (Colab / Kaggle)
+# ═══════════════════════════════════════════════════════════════
+#
+#  Changes vs A100 config:
+#    • bf16 → fp16 (T4 lacks bfloat16 support)
+#    • tf32 → false (TF32 is Ampere-only)
+#    • Batch size 4 → 2 (grad accum 4 → 8 to keep effective=16)
+#    • Compute dtype: bfloat16 → float16
+#    • max_seq_length: 1024 → 512 (saves ~2 GB VRAM)
+#    • max_train_samples: 20000 (fits in Colab time limit)
+#    • Epochs: 3 → 1 (first run), bump to 2–3 once validated
+#
+#  Estimated VRAM: ~8 GB peak (fits 16 GB T4 with headroom)
+#  Estimated time: ~90 min on T4 (20K samples, 1 epoch)
+# ───────────────────────────────────────────────────────────────
+
+# ─── Model ────────────────────────────────────────────────────
+model:
+  name: "mistralai/Mistral-7B-v0.3"
+  max_seq_length: 512                  # Reduced from 1024 — most SQL < 512 tokens
+  trust_remote_code: false
+  device_map: "auto"
+
+# ─── Quantization (BitsAndBytes) ─────────────────────────────
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_compute_dtype: "float16"    # ← Changed: T4 doesn't support bfloat16
+  bnb_4bit_use_double_quant: true
+
+# ─── LoRA ────────────────────────────────────────────────────
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+# ─── Dataset ─────────────────────────────────────────────────
+dataset:
+  name: "b-mc2/sql-create-context"
+  train_split: "train"
+  test_size: 0.1
+  seed: 42
+  max_train_samples: 20000             # ← Cap at 20K for free-tier time limits
+  max_eval_samples: 1000               # ← Smaller eval set for speed
+  processed_dir: "data/processed"
+
+# ─── Training ────────────────────────────────────────────────
+training:
+  output_dir: "outputs"
+  num_train_epochs: 1                  # ← Start with 1; bump to 2–3 once validated
+  per_device_train_batch_size: 2       # ← Halved from 4 to fit T4
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 8       # ← Doubled: effective batch still 2 × 8 = 16
+  gradient_checkpointing: true
+
+  # Optimizer
+  optim: "paged_adamw_8bit"
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  max_grad_norm: 0.3
+
+  # LR Schedule
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+
+  # Logging
+  logging_steps: 25                    # ← Less frequent to reduce overhead
+  logging_first_step: true
+
+  # Evaluation
+  eval_strategy: "steps"
+  eval_steps: 200                      # ← Less frequent evals (slower GPU)
+
+  # Checkpointing
+  save_strategy: "steps"
+  save_steps: 200
+  save_total_limit: 2                  # ← Save fewer checkpoints (disk quota)
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
+
+  # Precision — T4 specific
+  bf16: false                          # ← T4 does NOT support bfloat16
+  fp16: true                           # ← Use float16 instead
+  tf32: false                          # ← TF32 is Ampere-only (A100/3090/4090)
+  seed: 42
+  dataloader_num_workers: 2            # ← Colab/Kaggle has fewer CPU cores
+  report_to: "wandb"                   # Set to "none" if you skip W&B setup
+  run_name: "mistral-7b-qlora-text2sql-t4"
+
+# ─── SFT ─────────────────────────────────────────────────────
+sft:
+  max_seq_length: 512                  # ← Reduced from 1024
+  packing: false
+  neftune_noise_alpha: 5
+
+# ─── Inference ───────────────────────────────────────────────
+inference:
+  max_new_tokens: 256
+  temperature: 0.1
+  top_p: 0.9
+  do_sample: true
+  repetition_penalty: 1.1
+
+# ─── Evaluation ──────────────────────────────────────────────
+evaluation:
+  num_samples: 200                     # ← Smaller eval on free tier
+  run_execution_accuracy: true
+  run_bleu: true
+  run_exact_match: true
+  output_file: "outputs/eval_results.json"
+
+# ─── Hub / Deployment ────────────────────────────────────────
+hub:
+  push_to_hub: false
+  hub_model_id: "visheshgupta29/mistral-7b-text2sql-qlora"
+  hub_private: false

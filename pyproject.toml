@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "llm-lora-finetuning"
+version = "0.1.0"
+description = "Fine-tune LLMs for Text-to-SQL with QLoRA"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Vishesh Gupta", email = "visheshg29@gmail.com"},
+]
+keywords = ["llm", "lora", "qlora", "fine-tuning", "text-to-sql", "nlp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/visheshgupta29/llm-lora-finetuning"
+Repository = "https://github.com/visheshgupta29/llm-lora-finetuning"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
