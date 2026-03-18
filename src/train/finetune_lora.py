@@ -95,7 +95,7 @@ def load_quantized_model(cfg: dict):
         device_map=model_cfg.get("device_map", "auto"),
         trust_remote_code=model_cfg.get("trust_remote_code", False),
         token=os.getenv("HF_TOKEN"),
-        attn_implementation="flash_attention_2" if torch.cuda.is_bf16_supported() else "eager",
+        attn_implementation="eager",
     )
 
     # Prepare model for k-bit training (freeze base, enable gradient for adapters)
@@ -141,6 +141,7 @@ def create_training_args(cfg: dict) -> SFTConfig:
     sft = cfg.get("sft", {})
 
     return SFTConfig(
+        packing=sft.get("packing", False),
         output_dir=t["output_dir"],
         num_train_epochs=t["num_train_epochs"],
         per_device_train_batch_size=t["per_device_train_batch_size"],
@@ -171,8 +172,8 @@ def create_training_args(cfg: dict) -> SFTConfig:
         report_to=t.get("report_to", "wandb"),
         run_name=t.get("run_name", "qlora-text2sql"),
         # SFT-specific
-        max_seq_length=sft.get("max_seq_length", 1024),
-        packing=sft.get("packing", False),
+        # max_seq_length=sft.get("max_seq_length", 1024),
+        # packing=sft.get("packing", False),
         neftune_noise_alpha=sft.get("neftune_noise_alpha", None),
         dataset_text_field="text",
     )

@@ -104,6 +104,7 @@ def download_and_prepare(
         return {
             "text": text,
             "prompt": prompt_only,
+            "completion": sql,
             "question": question,
             "schema": schema,
             "gold_sql": sql,
