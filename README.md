@@ -160,7 +160,7 @@ The model gets the right start (`SELECT venue ... WHERE away_team = "essendon"`)
 <details>
 <summary>📈 Training Loss Curve (click to expand)</summary>
 
-![Training Loss](assets/training_loss.png)
+![Training Loss](assets\v1-train-loss-curve.png)
 
 </details>
 
