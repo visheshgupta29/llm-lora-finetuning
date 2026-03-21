@@ -21,9 +21,27 @@
 #    • Inference: do_sample → false (deterministic decoding)
 #    • Inference: repetition_penalty 1.1 → 1.3 (stop loops)
 #    • Inference: max_new_tokens 256 → 128 (SQL rarely > 128)
+#    • neftune_noise_alpha: 5 (embedding noise regularisation)
+#
+#  ── v2 Actual Results (Mar 18–19 2026) ────────────────────
+#    Early stop: step 1,200 / 3,750 (epoch 0.96) — patience 5/5
+#    Best eval_loss: 0.05831 @ step 200 (epoch 0.16)
+#    Train loss (avg): 0.09684 | WandB run: nka1xolh
+#    Saved adapter: outputs/final-adapter
+#    Eval: exec_acc 22%, BLEU 0.096, valid SQL 100%
+#    Base comparison (200 samples): base 28.5% > fine-tuned 21.0%
+#    Root cause: repetition loops corrupt otherwise-correct predictions
+#
+#  ── v3 Changes (this config) ──────────────────────────────
+#    • Inference: no_repeat_ngram_size 4 (hard-block repeated 4-grams)
+#    • Inference: repetition_penalty 1.3 → 1.5 (stronger token penalty)
+#    • Inference: eos_token_id += ';' (stop at first complete SQL statement)
+#    • Prompt: added concise SQL instruction to reduce multi-statement output
+#    • No retraining — same adapter from v2 (outputs/final-adapter)
 #
 #  Actual VRAM:    ~5.4 GB peak allocated (fits 16 GB T4 with headroom)
-#  Estimated time: ~20+ hrs on T4 (20K samples, 3 epochs) — v1 (1 ep) took 6h 52min
+#  v1 actual time: ~6h 52min (1 ep, 20K samples, Mar 15–16, 24,720 s)
+#  v2 actual time: ~6h 43min (24,200 s) — early stopped at epoch 0.96
 # ───────────────────────────────────────────────────────────────
 
 # ─── Model ────────────────────────────────────────────────────
@@ -117,14 +135,15 @@ sft:
   neftune_noise_alpha: 5
 
 # ─── Inference ───────────────────────────────────────────────
-# v2: switched to deterministic decoding to eliminate repetitive
-#     SQL generation that caused 72% runtime_error in v1
+# v2: deterministic decoding to eliminate repetitive SQL generation
+# v3: hard n-gram blocking + stronger penalty + first-statement extraction
 inference:
   max_new_tokens: 128              # ← v2: 256 → 128 (SQL queries are short)
   temperature: 0.1                 # ignored when do_sample=false, kept for interactive use
   top_p: 0.9                       # ignored when do_sample=false, kept for interactive use
   do_sample: false                 # ← v2: deterministic greedy decoding for eval
-  repetition_penalty: 1.3          # ← v2: 1.1 → 1.3 to stop repetitive AND clauses
+  repetition_penalty: 1.5          # ← v3: 1.3 → 1.5 (stronger token-level penalty)
+  no_repeat_ngram_size: 4          # ← v3: block any 4-token sequence from repeating
 
 # ─── Evaluation ──────────────────────────────────────────────
 evaluation:

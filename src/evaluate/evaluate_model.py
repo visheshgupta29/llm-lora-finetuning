@@ -184,13 +184,21 @@ def generate_sql(
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=768)
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
+    # Stop generation at ';' (end of first complete SQL statement) or EOS
+    # This is cleaner than post-processing: the model never generates past the
+    # first query, so no truncation is needed and the comparison stays fair.
+    semicolon_ids = tokenizer.encode(";", add_special_tokens=False)
+    stop_ids = list({tokenizer.eos_token_id} | set(semicolon_ids))
+
     outputs = model.generate(
         **inputs,
         max_new_tokens=max_new_tokens,
         temperature=temperature,
         top_p=0.9,
         do_sample=temperature > 0,
-        repetition_penalty=1.1,
+        repetition_penalty=1.5,                # v3: 1.1 → 1.5
+        no_repeat_ngram_size=4,                # v3: block repeated 4-grams
+        eos_token_id=stop_ids,                 # v3: stop at first ';'
         pad_token_id=tokenizer.pad_token_id,
     )
 
@@ -198,7 +206,7 @@ def generate_sql(
     generated = outputs[0][inputs["input_ids"].shape[1]:]
     sql = tokenizer.decode(generated, skip_special_tokens=True).strip()
 
-    # Clean: take only the first SQL statement
+    # Format cleanup only (not SQL modification)
     if "###" in sql:
         sql = sql.split("###")[0].strip()
     if "\n\n" in sql:

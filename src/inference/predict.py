@@ -158,7 +158,8 @@ class SQLPredictor:
             temperature=temp,
             top_p=0.9,
             do_sample=temp > 0,
-            repetition_penalty=1.1,
+            repetition_penalty=1.5,                # v3: 1.1 → 1.5
+            no_repeat_ngram_size=4,                # v3: block repeated 4-grams
             pad_token_id=self.tokenizer.pad_token_id,
         )
 
@@ -169,6 +170,8 @@ class SQLPredictor:
         # Clean up
         if "###" in sql:
             sql = sql.split("###")[0].strip()
+        if ";" in sql:  # v3: extract first complete statement
+            sql = sql.split(";")[0].strip() + ";"
         if "\n\n" in sql:
             sql = sql.split("\n\n")[0].strip()
 

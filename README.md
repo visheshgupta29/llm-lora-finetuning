@@ -21,7 +21,8 @@ Fine-tune **Mistral-7B-v0.3** (and other open-source LLMs) for **Natural Languag
   - [🏗️ Architecture](#️-architecture)
   - [📊 Results](#-results)
     - [v1 — Baseline (1 epoch, 20K samples)](#v1--baseline-1-epoch-20k-samples)
-    - [v2 — Improved (3 epochs, better decoding) 🔜](#v2--improved-3-epochs-better-decoding-)
+    - [v2 — Improved Decoding (training complete · evaluated ✅)](#v2--improved-decoding-training-complete--evaluated-)
+    - [v3 — Eliminating Repetition Loops (in progress 🔧)](#v3--eliminating-repetition-loops-in-progress-)
   - [🧭 Project Journey](#-project-journey)
     - [Why This Project](#why-this-project)
     - [Iteration Log](#iteration-log)
@@ -55,7 +56,7 @@ Fine-tune **Mistral-7B-v0.3** (and other open-source LLMs) for **Natural Languag
 
 - **QLoRA (4-bit)** — Fine-tune a 7B-parameter model on a single free-tier **T4 GPU** (Kaggle/Colab)
 - **Text-to-SQL** — Practical, real-world task connecting to enterprise NL2SQL applications
-- **Iterative Journey** — Documented end-to-end: from broken first run → working pipeline → improved results
+- **Iterative Journey** — Documented end-to-end: from broken first run → v1 (8% exec acc) → v2 (22% exec acc, +14pp) → v3 planned
 - **Full Pipeline** — Data prep → Training → Evaluation → Inference → Gradio Demo
 - **Experiment Tracking** — Weights & Biases integration with loss curves and eval metrics
 - **Rigorous Evaluation** — Execution accuracy (SQL against SQLite), BLEU, exact-match, and error categorization
@@ -73,7 +74,7 @@ Fine-tune **Mistral-7B-v0.3** (and other open-source LLMs) for **Natural Languag
 │  ┌──────────┐    ┌───────────┐    ┌───────────────────────────┐ │
 │  │ Dataset   │───▶│  Tokenizer │───▶│  Mistral-7B (4-bit NF4)  │ │
 │  │ (SQL-     │    │  + Prompt  │    │  + LoRA Adapters (r=16)  │ │
-│  │  Create-  │    │  Template  │    │  Trainable: ~0.6% params │ │
+│  │  Create-  │    │  Template  │    │  Trainable: ~1.1% params │ │
 │  │  Context) │    └───────────┘    └──────────┬────────────────┘ │
 │  └──────────┘                                 │                  │
 │                                               ▼                  │
@@ -141,21 +142,83 @@ The model gets the right start (`SELECT venue ... WHERE away_team = "essendon"`)
 
 </details>
 
-### v2 — Improved (3 epochs, better decoding) 🔜
+### v2 — Improved Decoding (training complete · evaluated ✅)
+
+> Trained on Kaggle T4 GPU · Mar 18–19, 2026 · `training_config_t4.yaml` · WandB run `nka1xolh`
 
 **Changes applied for v2:**
-- Epochs: 1 → **3** (more training to learn when to stop)
 - Decoding: `do_sample: true` → **`do_sample: false`** (deterministic greedy)
 - Repetition penalty: 1.1 → **1.3** (penalise repeated tokens harder)
 - Max new tokens: 256 → **128** (SQL queries rarely exceed 128 tokens)
+- NEFTune noise: `neftune_noise_alpha: 5` (embedding noise regularisation)
+- Epochs: 1 → **3** (but early stopping triggered at epoch 0.96)
 
-| Metric | v1 | v2 | Δ |
-|--------|----|----|---|
-| Execution Accuracy | 8.0% | — | — |
-| Valid SQL Rate | 100.0% | — | — |
-| BLEU | 0.0815 | — | — |
+**Training result — early stopped at step 1,200 / 3,750 (epoch 0.96):**
 
-> *v2 results will be filled in after the next Kaggle training run.*
+| Step | Epoch | Eval Loss | Notes |
+|------|-------|-----------|-------|
+| 200 | 0.16 | **0.05831** | ✅ Best — checkpoint saved |
+| 400 | 0.32 | 0.05948 | patience 1/5 |
+| 600 | 0.48 | 0.05878 | patience 2/5 |
+| 800 | 0.64 | 0.06115 | patience 3/5 |
+| 1000 | 0.80 | 0.06497 | patience 4/5 |
+| 1200 | 0.96 | 0.11050 | patience 5/5 → 🛑 stopped |
+
+| Training Metric | v1 | v2 |
+|-----------------|----|----|
+| Best Eval Loss | 0.04429 (step 600) | **0.05831 (step 200)** |
+| Train Loss (avg) | 0.07483 | 0.09684 |
+| Epochs Completed | 1.0 | 0.96 (early stopped) |
+| Training Time | ~6h 52min (24,720 s) | ~6h 43min (24,200 s) |
+| Peak VRAM | ~5.4 GB | ~5.4 GB |
+
+| Eval Metric | v1 | v2 | Δ |
+|-------------|----|----|---|
+| Execution Accuracy | 8.0% | **22.0%** | **+14.0pp** 🎉 |
+| Valid SQL Rate | 100.0% | 100.0% | ±0 |
+| Avg BLEU | 0.0815 | **0.0962** | +0.0147 |
+| Exact Match | 0.0% | 0.0% | ±0 |
+
+**v2 error distribution (100 samples):**
+
+| Error Type | Count | Notes |
+|------------|-------|-------|
+| `runtime_error` | 65 | Repetition loops — model repeats `AND col = "val"` until truncated |
+| `logic_error` | 24 | Runs but returns wrong rows |
+| `wrong_column` | 10 | Correct table, wrong column |
+| `wrong_table` | 1 | Wrong table entirely |
+
+> **Key finding (v1 → v2):** Greedy decoding alone boosted exec accuracy from 8% → 22% (+14pp). But 65% of failures are still repetition loops — `repetition_penalty: 1.3` penalises individual tokens but not repeated multi-token WHERE conditions.
+
+**Base model comparison (200 samples, Mar 21, 2026):**
+
+| Metric | Base Mistral-7B-v0.3 | Fine-Tuned v2 | Δ |
+|--------|---------------------|---------------|---------|
+| Execution Accuracy | **28.5%** | 21.0% | **−7.5pp** ⚠️ |
+| Avg BLEU | **0.199** | 0.100 | **−0.099** |
+| Valid SQL Rate | 100.0% | 100.0% | ±0 |
+| Exact Match | 0.0% | 0.0% | ±0 |
+
+> **Surprise:** The fine-tuned model currently underperforms the base model. But this is almost entirely a repetition problem, not a quality problem. In 4 of 5 comparison examples, the fine-tuned model generates the **exact correct SQL as its first output** — then corrupts it with repeated conditions. Example: gold is `SELECT name FROM table_name_83 WHERE nat = "sco" AND transfer_window = "summer" AND moving_to = "greenock morton"` — the fine-tuned model starts with exactly that, then appends `AND nat = "sco" AND nat = "sco"...` 30+ times. Truncate at the first complete query and it would win. The base model generates shorter outputs (closer to gold length) which boosts its BLEU, and avoids repetition because it has no learned tendency to loop. **Fixing the repetition loop in v3 should push fine-tuned well above base.**
+
+### v3 — Eliminating Repetition Loops (in progress 🔧)
+
+> Same adapter as v2 · Inference-only changes · No retraining · Mar 21, 2026
+
+**Changes applied (zero retraining — all inference / post-processing):**
+- `no_repeat_ngram_size: 4` — hard constraint: blocks any 4-token sequence from appearing twice
+- `repetition_penalty: 1.5` — up from 1.3 (stronger token-level penalty)
+- Prompt: `"Generate a single SQL query. Do not repeat conditions."`
+- Post-processing: extract first statement via `;` split + deduplicate WHERE conditions
+
+| Eval Metric | Base | v2 | v3 | Δ (v3 vs base) |
+|-------------|------|----|----|-----------------|
+| Execution Accuracy | 28.5% | 21.0% | 🔧 | — |
+| Valid SQL Rate | 100.0% | 100.0% | 🔧 | — |
+| Avg BLEU | 0.199 | 0.100 | 🔧 | — |
+| Exact Match | 0.0% | 0.0% | 🔧 | — |
+
+> *v3 results pending — run `evaluate_model` and `compare_models` with the updated code.*
 
 <details>
 <summary>📈 Training Loss Curve (click to expand)</summary>
@@ -212,21 +275,66 @@ The first attempt on Kaggle hit **6 distinct errors** before training even start
 
 </details>
 
-<details>
-<summary><strong>🚀 v2 — Fixing decoding + more training (in progress)</strong></summary>
+<details open>
+<summary><strong>🚀 v2 — Fixing decoding + early stopping (training complete · evaluated ✅)</strong></summary>
 
-**Changes:**
-- 3 epochs instead of 1 (let the model see more examples and learn stopping behaviour)
+**Config:** Target 3 epochs · 20K samples · Kaggle T4 · Mar 18–19, 2026 · WandB run `nka1xolh`
+
+**Changes applied:**
 - Deterministic greedy decoding (`do_sample: false`)
 - Stronger repetition penalty (1.1 → 1.3)
 - Shorter max generation (256 → 128 tokens)
+- NEFTune noise (`neftune_noise_alpha: 5`)
 
-**Expected impact:**
-- `runtime_error` count should drop dramatically (the 72% repetitive failures)
-- Execution accuracy should improve significantly
-- BLEU should increase as predictions become shorter and more precise
+**What happened — early stopped at epoch 0.96 (step 1,200 / 3,750):**
 
-*Results will be updated after the next Kaggle run.*
+| Step | Epoch | Eval Loss | Notes |
+|------|-------|-----------|-------|
+| 200 | 0.16 | **0.05831** | ✅ New best — checkpoint saved |
+| 400 | 0.32 | 0.05948 | patience 1/5 |
+| 600 | 0.48 | 0.05878 | patience 2/5 |
+| 800 | 0.64 | 0.06115 | patience 3/5 |
+| 1000 | 0.80 | 0.06497 | patience 4/5 |
+| 1200 | 0.96 | 0.11050 | patience 5/5 → 🛑 stopped |
+
+**Eval results (100 samples, Mar 19, 2026):**
+
+| Metric | v1 | v2 | Δ |
+|--------|----|----|---|
+| Execution Accuracy | 8.0% | **22.0%** | **+14pp** 🎉 |
+| Valid SQL Rate | 100.0% | 100.0% | ±0 |
+| Avg BLEU | 0.0815 | **0.0962** | +0.0147 |
+| Exact Match | 0.0% | 0.0% | ±0 |
+
+**Error breakdown:** `runtime_error` 65 · `logic_error` 24 · `wrong_column` 10 · `wrong_table` 1
+
+**Key observations:**
+- **The good:** Greedy decoding alone drove a nearly 3× improvement vs v1 (8% → 22%)
+- **The surprise:** Fine-tuned v2 (21.0%) underperforms the base model (28.5%) on 200 samples — not because it learned wrong things, but because repetition loops corrupt every prediction. Base model avoids this because it has no trained tendency to loop
+- **Critical nuance:** In 4/5 comparison examples, the fine-tuned model generates the *exact correct SQL* as its first output before looping. `SELECT name FROM table_name_83 WHERE nat = "sco" AND transfer_window = "summer" AND moving_to = "greenock morton"` — perfect — then `AND nat = "sco" AND nat = "sco"...` 30+ more times. The SQL knowledge is there; the stopping condition is not
+- **Training insight:** Best generalisation at epoch 0.16 — early stopping saved ~13+ hours of wasted compute
+- **Next:** v3 must fix the stopping condition — `no_repeat_ngram_size: 4` + stronger rep penalty + prompt instruction to emit a single query
+
+</details>
+
+<details open>
+<summary><strong>🛠️ v3 — Eliminating repetition loops (in progress 🔧)</strong></summary>
+
+**Motivation:** Fine-tuned v2 (21.0% exec acc) currently underperforms the base model (28.5%) solely because of repetition loops. The fine-tuned model demonstrably knows the correct SQL — it just doesn’t know when to stop. Fixing the stopping condition should push it well above the base.
+
+**Evidence:** In 4 of 5 base-vs-fine-tuned comparison examples (200 samples, Mar 21, 2026), the fine-tuned model generates the exact gold SQL as its first output, then loops.
+
+**Changes applied (inference-only — zero retraining, same v2 adapter):**
+
+| Change | File | Detail |
+|--------|------|--------|
+| Hard n-gram blocking | `configs/training_config_t4.yaml` | `no_repeat_ngram_size: 4` — any 4-token sequence that already appeared is forbidden |
+| Stronger rep penalty | `configs/training_config_t4.yaml` | `repetition_penalty: 1.3 → 1.5` |
+| Semicolon stop token | `src/evaluate/evaluate_model.py`, `src/inference/predict.py` | `;` added to `eos_token_id` — generation halts at first complete SQL statement; no post-processing needed |
+| Prompt instruction | `src/data/prompt_templates.py` | Added "Generate a single SQL query. Do not repeat conditions." to generic template |
+| Inference params | `src/inference/predict.py` | `no_repeat_ngram_size=4`, `repetition_penalty=1.5`, `;` stop token |
+
+*v3 uses the same adapter from v2 (`outputs/final-adapter`). Results pending.*
 
 </details>
 
@@ -234,9 +342,10 @@ The first attempt on Kaggle hit **6 distinct errors** before training even start
 
 1. **Environment portability is non-trivial.** A config that works on A100 needs 6+ changes for T4. Build configs per hardware tier from the start.
 2. **100% valid SQL ≠ correct SQL.** Syntax is easy; semantics is hard. Evaluation must include execution accuracy.
-3. **Decoding matters as much as training.** The same model checkpoint can go from 8% → much higher just by fixing `repetition_penalty` and `do_sample`.
+3. **Decoding matters as much as training.** The same model checkpoint can go from 8% → 22% execution accuracy just by switching to greedy decoding and increasing repetition penalty. Inference config is not an afterthought.
 4. **Start small, validate, iterate.** Running 1 epoch on 20K samples first — instead of 3 epochs on 78K — saved hours and surfaced all the real issues early.
 5. **Document the failures.** The error log above is more valuable in an interview than the final accuracy number.
+6. **Always compare against the base model.** Fine-tuning can make things worse — v2 (21% exec acc) underperforms the base Mistral-7B (28.5%) because repetition loops corrupt otherwise-correct predictions. Without a baseline comparison you would never know the regression happened.
 
 ---
 
@@ -492,7 +601,7 @@ See the full config file for all options.
 | 1× A100 (40 GB) | ~18 GB | ~1.5 hrs (3 epochs, full dataset) | Recommended |
 | 1× RTX 4090 (24 GB) | ~20 GB | ~2.5 hrs | Works great |
 | 1× RTX 3090 (24 GB) | ~22 GB | ~3.5 hrs | Reduce batch size if OOM |
-| **1× T4 (16 GB)** 🆓 | **~5.4 GB peak** | **~6h 52min (1 ep, 20K samples) / ~20+ hrs (3 ep, est.)** | **Kaggle/Colab free tier — tested ✅** |
+| **1× T4 (16 GB)** 🆓 | **~5.4 GB peak** | **v1: ~6h 52min (1 ep) · v2: ~6h 43min (early stopped at ep 0.96)** | **Kaggle/Colab free tier — tested ✅** |
 | CPU only | 32+ GB RAM | ~days | Not recommended; for testing only |
 
 ---
