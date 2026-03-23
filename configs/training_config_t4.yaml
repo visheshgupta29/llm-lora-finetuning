@@ -33,15 +33,22 @@
 #    Root cause: repetition loops corrupt otherwise-correct predictions
 #
 #  ── v3 Changes (this config) ──────────────────────────────
-#    • Inference: no_repeat_ngram_size 4 (hard-block repeated 4-grams)
-#    • Inference: repetition_penalty 1.3 → 1.5 (stronger token penalty)
+#    • Data: append ';' to every SQL completion — model learns to stop
 #    • Inference: eos_token_id += ';' (stop at first complete SQL statement)
-#    • Prompt: added concise SQL instruction to reduce multi-statement output
-#    • No retraining — same adapter from v2 (outputs/final-adapter)
+#    • Inference: repetition_penalty stays at 1.1 (>1.1 causes gibberish)
+#    • Inference: REMOVED no_repeat_ngram_size — blocks valid SQL patterns
+#    • Prompt: "Generate a single SQL query. Do not repeat conditions."
+#    • Epochs: 3 → 1 (3 epochs caused severe overfitting: train_loss=0.006)
+#    • Requires retraining (dataset change)
+#
+#  v3 training results:
+#    Pending retrain with fixed dataset (';' in completions, 1 epoch)
+#    Previous attempt (3 epochs) overfit: train_loss=0.006, 0% exec acc
 #
 #  Actual VRAM:    ~5.4 GB peak allocated (fits 16 GB T4 with headroom)
 #  v1 actual time: ~6h 52min (1 ep, 20K samples, Mar 15–16, 24,720 s)
 #  v2 actual time: ~6h 43min (24,200 s) — early stopped at epoch 0.96
+#  v3 actual time: pending retrain
 # ───────────────────────────────────────────────────────────────
 
 # ─── Model ────────────────────────────────────────────────────
@@ -87,7 +94,7 @@ dataset:
 # ─── Training ────────────────────────────────────────────────
 training:
   output_dir: "outputs"
-  num_train_epochs: 3                  # ← v2: bumped from 1 → 3 after validating v1 pipeline
+  num_train_epochs: 1                  # ← v3: back to 1 (3 epochs caused severe overfitting)
   per_device_train_batch_size: 2       # ← Halved from 4 to fit T4
   per_device_eval_batch_size: 2
   gradient_accumulation_steps: 8       # ← Doubled: effective batch still 2 × 8 = 16
@@ -136,14 +143,15 @@ sft:
 
 # ─── Inference ───────────────────────────────────────────────
 # v2: deterministic decoding to eliminate repetitive SQL generation
-# v3: hard n-gram blocking + stronger penalty + first-statement extraction
+# v3: stronger penalty + ';' stop token (no_repeat_ngram_size REMOVED — caused gibberish)
 inference:
   max_new_tokens: 128              # ← v2: 256 → 128 (SQL queries are short)
   temperature: 0.1                 # ignored when do_sample=false, kept for interactive use
   top_p: 0.9                       # ignored when do_sample=false, kept for interactive use
   do_sample: false                 # ← v2: deterministic greedy decoding for eval
-  repetition_penalty: 1.5          # ← v3: 1.3 → 1.5 (stronger token-level penalty)
-  no_repeat_ngram_size: 4          # ← v3: block any 4-token sequence from repeating
+  repetition_penalty: 1.1          # ← v3: back to 1.1 — ';' stop token handles stopping
+  # no_repeat_ngram_size removed — blocks valid SQL patterns
+  # repetition_penalty > 1.1 causes gibberish — blocks tokens the model must reuse from the prompt
 
 # ─── Evaluation ──────────────────────────────────────────────
 evaluation:

@@ -152,14 +152,18 @@ class SQLPredictor:
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
         # Generate
+        # Stop at first ';' (complete SQL statement) or EOS
+        semicolon_ids = self.tokenizer.encode(";", add_special_tokens=False)
+        stop_ids = list({self.tokenizer.eos_token_id} | set(semicolon_ids))
+
         outputs = self.model.generate(
             **inputs,
             max_new_tokens=max_tok,
             temperature=temp,
             top_p=0.9,
             do_sample=temp > 0,
-            repetition_penalty=1.5,                # v3: 1.1 → 1.5
-            no_repeat_ngram_size=4,                # v3: block repeated 4-grams
+            repetition_penalty=1.1,                # v3: keep low — ';' stop token handles stopping
+            eos_token_id=stop_ids,                 # v3: stop at first ';'
             pad_token_id=self.tokenizer.pad_token_id,
         )
 
@@ -167,11 +171,9 @@ class SQLPredictor:
         generated = outputs[0][inputs["input_ids"].shape[1]:]
         sql = self.tokenizer.decode(generated, skip_special_tokens=True).strip()
 
-        # Clean up
+        # Format cleanup only
         if "###" in sql:
             sql = sql.split("###")[0].strip()
-        if ";" in sql:  # v3: extract first complete statement
-            sql = sql.split(";")[0].strip() + ";"
         if "\n\n" in sql:
             sql = sql.split("\n\n")[0].strip()
 

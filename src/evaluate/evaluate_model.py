@@ -196,8 +196,7 @@ def generate_sql(
         temperature=temperature,
         top_p=0.9,
         do_sample=temperature > 0,
-        repetition_penalty=1.5,                # v3: 1.1 → 1.5
-        no_repeat_ngram_size=4,                # v3: block repeated 4-grams
+        repetition_penalty=1.1,                # v3: keep low — ';' stop token handles stopping
         eos_token_id=stop_ids,                 # v3: stop at first ';'
         pad_token_id=tokenizer.pad_token_id,
     )
