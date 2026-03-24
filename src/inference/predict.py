@@ -177,6 +177,13 @@ class SQLPredictor:
         sql = self.tokenizer.decode(generated, skip_special_tokens=True).strip()
 
         # Format cleanup only
+        # Strip markdown code fences — base models often wrap SQL in ```sql...```
+        if sql.startswith("```"):
+            sql = sql.strip("`").strip()
+            if sql.lower().startswith("sql"):
+                sql = sql[3:].strip()
+        if sql.endswith("```"):
+            sql = sql[: sql.rfind("```")].strip()
         if "###" in sql:
             sql = sql.split("###")[0].strip()
         if "\n\n" in sql:
