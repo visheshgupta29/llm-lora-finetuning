@@ -83,7 +83,8 @@ HuggingFace Dataset → prepare_dataset.py → data/processed/{train,test}.jsonl
 - **Training completions end with `;`** — this is the stop signal the model learns
 
 ### Generation Parameters (CRITICAL — hard-won lessons)
-- **`eos_token_id`** includes `;` token IDs — generation stops at first semicolon
+- **`eos_token_id`** includes ALL `;` token IDs — must scan `tokenizer.get_vocab()` for variants
+  because SentencePiece encodes standalone `";"` as `▁;` (different token ID from bare `";"` in context)
 - **`repetition_penalty`** must stay at **1.1** — higher values (1.3, 1.5) cause gibberish
   because they penalize tokens from the prompt that the model MUST reuse (table names, column names)
 - **`no_repeat_ngram_size`** must NOT be used — SQL has valid repeated n-grams (`= "val" AND`)
@@ -97,25 +98,31 @@ HuggingFace Dataset → prepare_dataset.py → data/processed/{train,test}.jsonl
 
 ### Branch: `feat/v3-inference-optimization`
 
-**Status:** v3 retrain pending. All code changes committed and pushed.
+**Status:** v3 training + eval complete. 🎉 **93% execution accuracy.**
 
 **What happened:**
 - v1: 8% exec acc (repetition loops)
 - v2: 22% exec acc (greedy decoding helped, but still loops)
-- Base Mistral-7B: 28.5% exec acc (outperforms fine-tuned!)
+- Base Mistral-7B: 28.5% exec acc (outperformed fine-tuned v2!)
 - v3 attempt 1: 0% exec acc — `no_repeat_ngram_size=4` caused gibberish
 - v3 attempt 2: 0% exec acc — `repetition_penalty=1.5` caused gibberish
 - v3 attempt 3: 0% exec acc — 3 epochs caused severe overfitting (train_loss=0.006)
+- v3 attempt 4: 0% exec acc — SentencePiece `;` token mismatch (stop token never fired)
+- **v3 final: 93% exec acc, 76% exact match, 0.921 BLEU** 🎉
 
-**Root cause found:** Training data had no semicolons. Model never learned to generate `;`,
-so the `;` stop token never fired. Generation ran to `max_new_tokens` every time.
+**Root causes found (two issues):**
+1. Training data had no semicolons → model never learned to generate `;` → fixed in `prepare_dataset.py`
+2. SentencePiece encodes `";"` as `▁;` (space-prefix), but model generates bare `";"` (different token ID) → fixed by scanning `get_vocab()` for all `;` variants
 
-**Fix applied (needs retrain):**
-1. `prepare_dataset.py` — `sql_with_stop = sql.strip().rstrip(";") + ";"` appended to every completion
-2. `repetition_penalty` reset to 1.1 everywhere
-3. `no_repeat_ngram_size` removed everywhere
-4. `num_train_epochs` reduced from 3 → 1
-5. Prompt updated: "Generate a single SQL query. Do not repeat conditions."
+**v3 Results (100 samples, Mar 24 2026):**
+| Metric | Value |
+|--------|-------|
+| Execution Accuracy | **93.0%** |
+| Exact Match | 76.0% |
+| Valid SQL Rate | 100.0% |
+| BLEU | 0.921 |
+| Train Loss | 0.038 |
+| Training Time | 4h 45min |
 
 ### Key Files Modified in v3
 | File | What Changed |
@@ -244,7 +251,7 @@ Run: `python -m pytest tests/ -v`
 | v0 | — | 6 errors before training even started (T4 compat) |
 | v1 | 8% | Valid SQL but endless repetition loops |
 | v2 | 22% | Greedy decoding helped; still loops; base model beats it (28.5%) |
-| v3 (failed) | 0% | `no_repeat_ngram_size` + high rep_penalty = gibberish |
-| v3 (fix) | 🔧 | Root cause: no `;` in training data. Fixed. Retrain pending. |
+| v3 (failed ×4) | 0% | `no_repeat_ngram_size` + high rep_penalty = gibberish; SentencePiece token mismatch |
+| **v3 (final)** | **93%** | Fixed: `;` in training data + vocab scan for all `;` token IDs |
 
 The full story with error tables, training curves, and comparison data is in `README.md`.

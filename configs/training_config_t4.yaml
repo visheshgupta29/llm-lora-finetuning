@@ -41,14 +41,18 @@
 #    • Epochs: 3 → 1 (3 epochs caused severe overfitting: train_loss=0.006)
 #    • Requires retraining (dataset change)
 #
-#  v3 training results:
-#    Pending retrain with fixed dataset (';' in completions, 1 epoch)
-#    Previous attempt (3 epochs) overfit: train_loss=0.006, 0% exec acc
+#  v3 training results (Mar 23–24 2026):
+#    Completed 1 epoch (1250/1250 steps)
+#    Train loss: 0.03789 | Best eval loss: 0.02541
+#    Peak VRAM: 5.37 GB | Runtime: 4h 45min (17,110 s)
+#    Eval: exec_acc 93%, BLEU 0.921, exact_match 76%, valid SQL 100%
+#    Additional fix: scan tokenizer vocab for ALL ';' token variants
+#    (SentencePiece ▁; vs bare ; have different token IDs)
 #
 #  Actual VRAM:    ~5.4 GB peak allocated (fits 16 GB T4 with headroom)
 #  v1 actual time: ~6h 52min (1 ep, 20K samples, Mar 15–16, 24,720 s)
 #  v2 actual time: ~6h 43min (24,200 s) — early stopped at epoch 0.96
-#  v3 actual time: pending retrain
+#  v3 actual time: 4h 45min (17,110 s) — 1 epoch with ';' in completions
 # ───────────────────────────────────────────────────────────────
 
 # ─── Model ────────────────────────────────────────────────────
