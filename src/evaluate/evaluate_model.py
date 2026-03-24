@@ -184,11 +184,15 @@ def generate_sql(
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=768)
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
-    # Stop generation at ';' (end of first complete SQL statement) or EOS
-    # This is cleaner than post-processing: the model never generates past the
-    # first query, so no truncation is needed and the comparison stays fair.
-    semicolon_ids = tokenizer.encode(";", add_special_tokens=False)
-    stop_ids = list({tokenizer.eos_token_id} | set(semicolon_ids))
+    # Stop generation at ';' (end of first complete SQL statement) or EOS.
+    # SentencePiece encodes standalone ";" as ▁; (with space prefix), but in
+    # context the model may emit bare ";" (different token ID).  Scan the
+    # vocab so we catch EVERY variant.
+    semicolon_ids = set(tokenizer.encode(";", add_special_tokens=False))
+    for tok_str, tok_id in tokenizer.get_vocab().items():
+        if tok_str.replace("\u2581", "").strip() == ";":
+            semicolon_ids.add(tok_id)
+    stop_ids = list({tokenizer.eos_token_id} | semicolon_ids)
 
     outputs = model.generate(
         **inputs,
@@ -210,6 +214,10 @@ def generate_sql(
         sql = sql.split("###")[0].strip()
     if "\n\n" in sql:
         sql = sql.split("\n\n")[0].strip()
+    # Safety net: take only the first complete statement if the stop token
+    # missed a ';' variant.  Applied equally to all models (fair comparison).
+    if ";" in sql:
+        sql = sql.split(";")[0].strip()
 
     return sql
 

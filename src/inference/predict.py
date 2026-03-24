@@ -152,9 +152,14 @@ class SQLPredictor:
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
         # Generate
-        # Stop at first ';' (complete SQL statement) or EOS
-        semicolon_ids = self.tokenizer.encode(";", add_special_tokens=False)
-        stop_ids = list({self.tokenizer.eos_token_id} | set(semicolon_ids))
+        # Stop at first ';' (complete SQL statement) or EOS.
+        # SentencePiece encodes standalone ";" as ▁; but the model may emit
+        # bare ";" in context (different token ID).  Scan the vocab.
+        semicolon_ids = set(self.tokenizer.encode(";", add_special_tokens=False))
+        for tok_str, tok_id in self.tokenizer.get_vocab().items():
+            if tok_str.replace("\u2581", "").strip() == ";":
+                semicolon_ids.add(tok_id)
+        stop_ids = list({self.tokenizer.eos_token_id} | semicolon_ids)
 
         outputs = self.model.generate(
             **inputs,
@@ -176,6 +181,9 @@ class SQLPredictor:
             sql = sql.split("###")[0].strip()
         if "\n\n" in sql:
             sql = sql.split("\n\n")[0].strip()
+        # Safety net: first complete statement only
+        if ";" in sql:
+            sql = sql.split(";")[0].strip()
 
         return sql
 
