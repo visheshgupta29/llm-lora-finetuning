@@ -211,12 +211,10 @@ def generate_sql(
 
     # Format cleanup only (not SQL modification)
     # Strip markdown code fences — base models often wrap SQL in ```sql...```
-    if sql.startswith("```"):
-        sql = sql.strip("`").strip()
-        if sql.lower().startswith("sql"):
-            sql = sql[3:].strip()
-    if sql.endswith("```"):
-        sql = sql[: sql.rfind("```")].strip()
+    # Uses re.sub for robustness against tokenizer edge cases
+    sql = re.sub(r"^```\w*\s*", "", sql)   # opening ```sql or ```
+    sql = re.sub(r"\s*```\s*$", "", sql)   # closing ```
+    sql = sql.strip()
     if "###" in sql:
         sql = sql.split("###")[0].strip()
     if "\n\n" in sql:
