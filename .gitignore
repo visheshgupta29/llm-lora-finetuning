@@ -27,6 +27,7 @@ data/raw/
 data/processed/
 models/
 outputs/
+src/output/
 wandb/
 *.bin
 *.safetensors

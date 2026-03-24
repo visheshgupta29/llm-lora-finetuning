@@ -14,8 +14,8 @@ from __future__ import annotations
 
 GENERIC_SYSTEM_PROMPT = (
     "You are a helpful SQL assistant. Given a database schema and a natural "
-    "language question, generate the correct SQL query. Output ONLY the SQL "
-    "query, nothing else."
+    "language question, generate the correct SQL query. Output ONLY a single "
+    "SQL query, nothing else. Do not repeat any conditions."
 )
 
 
@@ -30,7 +30,8 @@ def format_generic(
     model to follow this format via SFT.
     """
     prompt = (
-        "### Task: Generate a SQL query to answer the following question.\n\n"
+        "### Task: Generate a single SQL query to answer the following question.\n"
+        "Do not repeat any conditions or output multiple queries.\n\n"
         f"### Database Schema:\n{schema.strip()}\n\n"
         f"### Question:\n{question.strip()}\n\n"
         "### SQL Query:\n"

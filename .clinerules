@@ -1,0 +1,44 @@
+# Cline Rules — llm-lora-finetuning
+
+## Role
+You are working on a QLoRA fine-tuning pipeline for Mistral-7B Text-to-SQL.
+Read CLAUDE.md for full project context before making any changes.
+
+## Mandatory Reading
+Before editing any code, read these files:
+1. `CLAUDE.md` — Full project intelligence (architecture, gotchas, current state)
+2. `configs/training_config_t4.yaml` — All training/inference config + experiment history in comments
+3. The specific module you're editing — check docstring for Usage examples
+
+## Rules
+
+### Code Style
+- Every Python file starts with `from __future__ import annotations`
+- Type hints: `X | None` (PEP 604), `list[str]` (PEP 585)
+- Imports: `from src.*` (absolute only, never relative)
+- Every module has a module-level docstring with `Usage:` block
+
+### Architecture
+- `format_prompt()` in `prompt_templates.py` is the ONLY prompt entry point
+- `generate_sql()` in `evaluate_model.py` is the ONLY generation function
+  - `compare_models.py` imports it — do not create a second generate function
+- Dataset has 6 fields: text, prompt, completion, question, schema, gold_sql
+
+### Sacred Parameters (DO NOT CHANGE)
+These cost 20+ hours of GPU debugging to discover:
+- `repetition_penalty: 1.1` — higher values cause gibberish
+- NO `no_repeat_ngram_size` — blocks valid SQL patterns
+- `eos_token_id` includes `;` — model trained with `;` in completions
+- Training SQL completions MUST end with `;`
+- `gold_sql` must NOT end with `;`
+
+### Hardware (T4)
+- bf16: false, tf32: false
+- max_seq_length: 512
+- batch_size: 2, gradient_accumulation: 8
+
+## Current State
+Branch: `feat/v3-inference-optimization`
+v3 retrain pending. All code changes committed.
+Root cause: training data had no semicolons → model never learned to stop.
+Fix applied in prepare_dataset.py. See CLAUDE.md § 4 for details.

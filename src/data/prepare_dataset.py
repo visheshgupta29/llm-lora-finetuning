@@ -85,12 +85,15 @@ def download_and_prepare(
         schema = example.get("context", "")
         sql = example.get("answer", "")
 
+        # Ensure SQL ends with ';' so model learns to stop there
+        sql_with_stop = sql.strip().rstrip(";") + ";"
+
         # Full prompt with answer (for training)
         text = format_prompt(
             model_name=model_name,
             question=question,
             schema=schema,
-            sql=sql,
+            sql=sql_with_stop,
         )
 
         # Prompt without answer (for inference / eval)
@@ -104,7 +107,7 @@ def download_and_prepare(
         return {
             "text": text,
             "prompt": prompt_only,
-            "completion": sql,
+            "completion": sql_with_stop,
             "question": question,
             "schema": schema,
             "gold_sql": sql,

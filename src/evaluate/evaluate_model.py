@@ -184,13 +184,24 @@ def generate_sql(
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=768)
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
+    # Stop generation at ';' (end of first complete SQL statement) or EOS.
+    # SentencePiece encodes standalone ";" as ▁; (with space prefix), but in
+    # context the model may emit bare ";" (different token ID).  Scan the
+    # vocab so we catch EVERY variant.
+    semicolon_ids = set(tokenizer.encode(";", add_special_tokens=False))
+    for tok_str, tok_id in tokenizer.get_vocab().items():
+        if tok_str.replace("\u2581", "").strip() == ";":
+            semicolon_ids.add(tok_id)
+    stop_ids = list({tokenizer.eos_token_id} | semicolon_ids)
+
     outputs = model.generate(
         **inputs,
         max_new_tokens=max_new_tokens,
         temperature=temperature,
         top_p=0.9,
         do_sample=temperature > 0,
-        repetition_penalty=1.1,
+        repetition_penalty=1.1,                # v3: keep low — ';' stop token handles stopping
+        eos_token_id=stop_ids,                 # v3: stop at first ';'
         pad_token_id=tokenizer.pad_token_id,
     )
 
@@ -198,11 +209,22 @@ def generate_sql(
     generated = outputs[0][inputs["input_ids"].shape[1]:]
     sql = tokenizer.decode(generated, skip_special_tokens=True).strip()
 
-    # Clean: take only the first SQL statement
+    # Format cleanup only (not SQL modification)
+    # Strip markdown code fences — base models often wrap SQL in ```sql...```
+    if sql.startswith("```"):
+        sql = sql.strip("`").strip()
+        if sql.lower().startswith("sql"):
+            sql = sql[3:].strip()
+    if sql.endswith("```"):
+        sql = sql[: sql.rfind("```")].strip()
     if "###" in sql:
         sql = sql.split("###")[0].strip()
     if "\n\n" in sql:
         sql = sql.split("\n\n")[0].strip()
+    # Safety net: take only the first complete statement if the stop token
+    # missed a ';' variant.  Applied equally to all models (fair comparison).
+    if ";" in sql:
+        sql = sql.split(";")[0].strip()
 
     return sql
 

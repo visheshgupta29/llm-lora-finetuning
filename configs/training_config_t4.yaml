@@ -21,9 +21,41 @@
 #    • Inference: do_sample → false (deterministic decoding)
 #    • Inference: repetition_penalty 1.1 → 1.3 (stop loops)
 #    • Inference: max_new_tokens 256 → 128 (SQL rarely > 128)
+#    • neftune_noise_alpha: 5 (embedding noise regularisation)
+#
+#  ── v2 Actual Results (Mar 18–19 2026) ────────────────────
+#    Early stop: step 1,200 / 3,750 (epoch 0.96) — patience 5/5
+#    Best eval_loss: 0.05831 @ step 200 (epoch 0.16)
+#    Train loss (avg): 0.09684 | WandB run: nka1xolh
+#    Saved adapter: outputs/final-adapter
+#    Eval: exec_acc 22%, BLEU 0.096, valid SQL 100%
+#    Base comparison (200 samples): base 28.5% > fine-tuned 21.0%
+#    (Note: 28.5% was pre-fence-stripping; true base accuracy ~56.5%)
+#    Root cause: repetition loops corrupt otherwise-correct predictions
+#
+#  ── v3 Changes (this config) ──────────────────────────────
+#    • Data: append ';' to every SQL completion — model learns to stop
+#    • Inference: eos_token_id += ';' (stop at first complete SQL statement)
+#    • Inference: repetition_penalty stays at 1.1 (>1.1 causes gibberish)
+#    • Inference: REMOVED no_repeat_ngram_size — blocks valid SQL patterns
+#    • Prompt: "Generate a single SQL query. Do not repeat conditions."
+#    • Epochs: 3 → 1 (3 epochs caused severe overfitting: train_loss=0.006)
+#    • Requires retraining (dataset change)
+#
+#  v3 training results (Mar 23–24 2026):
+#    Completed 1 epoch (1250/1250 steps)
+#    Train loss: 0.03789 | Best eval loss: 0.02541
+#    Peak VRAM: 5.37 GB | Runtime: 4h 45min (17,110 s)
+#    Eval: exec_acc 93%, BLEU 0.921, exact_match 76%, valid SQL 100%
+#    Comparison (200 samples): fine-tuned 94% vs base 56.5% (+37.5pp)
+#    Note: base model wraps SQL in ```sql fences — stripped for fair comparison
+#    Additional fix: scan tokenizer vocab for ALL ';' token variants
+#    (SentencePiece ▁; vs bare ; have different token IDs)
 #
 #  Actual VRAM:    ~5.4 GB peak allocated (fits 16 GB T4 with headroom)
-#  Estimated time: ~20+ hrs on T4 (20K samples, 3 epochs) — v1 (1 ep) took 6h 52min
+#  v1 actual time: ~6h 52min (1 ep, 20K samples, Mar 15–16, 24,720 s)
+#  v2 actual time: ~6h 43min (24,200 s) — early stopped at epoch 0.96
+#  v3 actual time: 4h 45min (17,110 s) — 1 epoch with ';' in completions
 # ───────────────────────────────────────────────────────────────
 
 # ─── Model ────────────────────────────────────────────────────
@@ -69,7 +101,7 @@ dataset:
 # ─── Training ────────────────────────────────────────────────
 training:
   output_dir: "outputs"
-  num_train_epochs: 3                  # ← v2: bumped from 1 → 3 after validating v1 pipeline
+  num_train_epochs: 1                  # ← v3: back to 1 (3 epochs caused severe overfitting)
   per_device_train_batch_size: 2       # ← Halved from 4 to fit T4
   per_device_eval_batch_size: 2
   gradient_accumulation_steps: 8       # ← Doubled: effective batch still 2 × 8 = 16
@@ -117,14 +149,16 @@ sft:
   neftune_noise_alpha: 5
 
 # ─── Inference ───────────────────────────────────────────────
-# v2: switched to deterministic decoding to eliminate repetitive
-#     SQL generation that caused 72% runtime_error in v1
+# v2: deterministic decoding to eliminate repetitive SQL generation
+# v3: stronger penalty + ';' stop token (no_repeat_ngram_size REMOVED — caused gibberish)
 inference:
   max_new_tokens: 128              # ← v2: 256 → 128 (SQL queries are short)
   temperature: 0.1                 # ignored when do_sample=false, kept for interactive use
   top_p: 0.9                       # ignored when do_sample=false, kept for interactive use
   do_sample: false                 # ← v2: deterministic greedy decoding for eval
-  repetition_penalty: 1.3          # ← v2: 1.1 → 1.3 to stop repetitive AND clauses
+  repetition_penalty: 1.1          # ← v3: back to 1.1 — ';' stop token handles stopping
+  # no_repeat_ngram_size removed — blocks valid SQL patterns
+  # repetition_penalty > 1.1 causes gibberish — blocks tokens the model must reuse from the prompt
 
 # ─── Evaluation ──────────────────────────────────────────────
 evaluation:

@@ -1,0 +1,22 @@
+# Windsurf Rules — llm-lora-finetuning
+# Read CLAUDE.md for full project context.
+
+## Project
+QLoRA fine-tuning pipeline for Mistral-7B Text-to-SQL on Kaggle T4 GPUs.
+Config-driven: `configs/training_config_t4.yaml`. Run via `python -m src.<module>`.
+
+## Code Style
+- Python 3.10+, `from __future__ import annotations` in every file
+- `X | None` not `Optional[X]`, `list[str]` not `List[str]`
+- Absolute imports only: `from src.data.prompt_templates import format_prompt`
+- Logging: `logging` + `rich.console.Console`
+
+## Critical Constraints
+- `repetition_penalty` must be 1.1 (higher = gibberish for SQL generation)
+- Never use `no_repeat_ngram_size` (blocks valid SQL repeated patterns)
+- `eos_token_id` must include `;` token IDs
+- Training SQL completions end with `;`; `gold_sql` does NOT
+- `compare_models.py` imports `generate_sql` from `evaluate_model.py` — single source
+
+## T4 GPU Constraints
+- bf16: false, tf32: false, max_seq_length: 512, batch_size: 2

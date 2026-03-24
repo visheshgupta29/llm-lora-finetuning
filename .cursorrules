@@ -1,0 +1,40 @@
+# Cursor Rules — llm-lora-finetuning
+# QLoRA fine-tuning pipeline for Mistral-7B Text-to-SQL on Kaggle T4 GPUs.
+
+## Project Structure
+- Config-driven: `configs/training_config_t4.yaml` controls everything
+- Entry points: `python -m src.<module>` (never direct file execution)
+- Package imports: `from src.data.prompt_templates import format_prompt`
+
+## Code Style
+- Python 3.10+ with `from __future__ import annotations` in every file
+- Union types: `X | None` not `Optional[X]`, `list[str]` not `List[str]`
+- Always absolute imports from `src.*`, never relative
+- Logging via `logging` + `rich.console.Console`
+- Docstrings: Google/NumPy hybrid with Usage: examples
+
+## Critical Rules — Generation Parameters
+DO NOT change these without understanding the full context in CLAUDE.md:
+- `repetition_penalty` MUST be 1.1 (higher = gibberish for SQL)
+- `no_repeat_ngram_size` MUST NOT be used (blocks valid SQL patterns)
+- `eos_token_id` must include `;` token IDs (stop at first complete SQL)
+- `do_sample: false` for evaluation
+
+## Data Pipeline
+- SQL completions in training data MUST end with `;` (model learns stop signal)
+- `gold_sql` field must NOT have `;` (eval comparison via normalize_sql strips it)
+- Dataset fields: text, prompt, completion, question, schema, gold_sql
+- `compare_models.py` imports `generate_sql` from `evaluate_model.py` — single source of truth
+
+## Hardware (T4 GPU)
+- bf16: false, tf32: false (T4 is Turing, not Ampere)
+- max_seq_length: 512, batch_size: 2, grad_accum: 8
+- Peak VRAM: ~5.4 GB
+
+## Git
+- Conventional commits: feat:, fix:, docs:, refactor:
+- Never commit: outputs/, data/processed/, wandb/, .env, *.safetensors
+- Current branch: feat/v3-inference-optimization
+
+## Context
+Read CLAUDE.md for full project history, iteration log, and detailed gotchas.

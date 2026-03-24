@@ -152,13 +152,23 @@ class SQLPredictor:
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
         # Generate
+        # Stop at first ';' (complete SQL statement) or EOS.
+        # SentencePiece encodes standalone ";" as ▁; but the model may emit
+        # bare ";" in context (different token ID).  Scan the vocab.
+        semicolon_ids = set(self.tokenizer.encode(";", add_special_tokens=False))
+        for tok_str, tok_id in self.tokenizer.get_vocab().items():
+            if tok_str.replace("\u2581", "").strip() == ";":
+                semicolon_ids.add(tok_id)
+        stop_ids = list({self.tokenizer.eos_token_id} | semicolon_ids)
+
         outputs = self.model.generate(
             **inputs,
             max_new_tokens=max_tok,
             temperature=temp,
             top_p=0.9,
             do_sample=temp > 0,
-            repetition_penalty=1.1,
+            repetition_penalty=1.1,                # v3: keep low — ';' stop token handles stopping
+            eos_token_id=stop_ids,                 # v3: stop at first ';'
             pad_token_id=self.tokenizer.pad_token_id,
         )
 
@@ -166,11 +176,21 @@ class SQLPredictor:
         generated = outputs[0][inputs["input_ids"].shape[1]:]
         sql = self.tokenizer.decode(generated, skip_special_tokens=True).strip()
 
-        # Clean up
+        # Format cleanup only
+        # Strip markdown code fences — base models often wrap SQL in ```sql...```
+        if sql.startswith("```"):
+            sql = sql.strip("`").strip()
+            if sql.lower().startswith("sql"):
+                sql = sql[3:].strip()
+        if sql.endswith("```"):
+            sql = sql[: sql.rfind("```")].strip()
         if "###" in sql:
             sql = sql.split("###")[0].strip()
         if "\n\n" in sql:
             sql = sql.split("\n\n")[0].strip()
+        # Safety net: first complete statement only
+        if ";" in sql:
+            sql = sql.split(";")[0].strip()
 
         return sql
 
