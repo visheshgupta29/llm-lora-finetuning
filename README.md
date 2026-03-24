@@ -201,6 +201,8 @@ The model gets the right start (`SELECT venue ... WHERE away_team = "essendon"`)
 
 > **Surprise:** The fine-tuned model currently underperforms the base model. But this is almost entirely a repetition problem, not a quality problem. In 4 of 5 comparison examples, the fine-tuned model generates the **exact correct SQL as its first output** — then corrupts it with repeated conditions. Example: gold is `SELECT name FROM table_name_83 WHERE nat = "sco" AND transfer_window = "summer" AND moving_to = "greenock morton"` — the fine-tuned model starts with exactly that, then appends `AND nat = "sco" AND nat = "sco"...` 30+ times. Truncate at the first complete query and it would win. The base model generates shorter outputs (closer to gold length) which boosts its BLEU, and avoids repetition because it has no learned tendency to loop. **Fixing the repetition loop in v3 should push fine-tuned well above base.**
 
+> ⚠️ **Note (updated Mar 24):** The 28.5% base accuracy above was measured before discovering that the base model wraps SQL output in `` ```sql...``` `` markdown code fences, which cause SQLite syntax errors and artificially lower execution accuracy. With fence stripping (added in v3), the base model's fair accuracy is **56.5%** on 200 samples. See the v3 comparison below for the corrected measurement.
+
 ### v3 — Fixing the Stopping Condition (evaluated ✅)
 
 > Retrained on Kaggle T4 GPU · Mar 23–24, 2026 · `training_config_t4.yaml`
@@ -222,13 +224,14 @@ The model gets the right start (`SELECT venue ... WHERE away_team = "essendon"`)
 | Remove ngram blocking | all inference code | `no_repeat_ngram_size` removed entirely |
 | Reduce epochs | `configs/training_config_t4.yaml` | `num_train_epochs: 1` (3 epochs caused severe overfitting: train_loss=0.006) |
 | Prompt instruction | `src/data/prompt_templates.py` | "Generate a single SQL query. Do not repeat conditions." |
+| Strip code fences | `src/evaluate/evaluate_model.py`, `src/inference/predict.py` | Base model wraps SQL in `` ```sql...``` `` fences — strip before execution |
 
 | Eval Metric | Base | v2 | v3 | Δ (v3 vs base) |
 |-------------|------|----|----|------------------|
-| Execution Accuracy | 28.5% | 21.0% | **93.0%** | **+64.5pp** 🎉 |
+| Execution Accuracy | 56.5% | 21.0% | **94.0%** | **+37.5pp** 🎉 |
 | Valid SQL Rate | 100.0% | 100.0% | **100.0%** | ±0 |
-| Avg BLEU | 0.199 | 0.100 | **0.921** | **+0.722** |
-| Exact Match | 0.0% | 0.0% | **76.0%** | **+76.0pp** |
+| Avg BLEU | 0.421 | 0.100 | **0.925** | **+0.504** |
+| Exact Match | 1.0% | 0.0% | **74.0%** | **+73.0pp** |
 
 **v3 training result (1 epoch, 1,250 steps, Mar 23–24, 2026):**
 
@@ -248,9 +251,32 @@ The model gets the right start (`SELECT venue ... WHERE away_team = "essendon"`)
 | `runtime_error` | 3 | Minor edge cases |
 | `wrong_column` | 1 | Correct table, wrong column |
 
-> **Key result:** Fine-tuned v3 (93%) crushes the base model (28.5%) by +64.5pp. The model generates exact gold SQL 76% of the time, and BLEU jumped from 0.10 to 0.92. The fix was two-fold: (1) train with `;` in completions so the model learns to stop, and (2) scan the full tokenizer vocab for all `;` token variants (SentencePiece encodes `▁;` vs bare `;` as different tokens).
+> **Key result:** Fine-tuned v3 (94%) outperforms the base model (56.5%) by **+37.5pp** on 200 samples. The model generates exact gold SQL 74% of the time, and BLEU jumped from 0.42 to 0.93. The fix was three-fold: (1) train with `;` in completions so the model learns to stop, (2) scan the full tokenizer vocab for all `;` token variants (SentencePiece encodes `▁;` vs bare `;` as different tokens), and (3) strip markdown code fences from the base model's output for fair comparison.
 
-> *v3 comparison vs base model pending — run `compare_models` next.*
+<details>
+<summary>🔍 v3 comparison examples (click to expand)</summary>
+
+```
+Example 1: When Essendon played away; where did they play?
+  Gold:       SELECT venue FROM table_name_50 WHERE away_team = "essendon"
+  Base:       ```sql SELECT venue FROM table_name_50 WHERE away_team = 'Essendon' ```
+  Fine-tuned: SELECT venue FROM table_name_50 WHERE away_team = "essendon"  ✅ exact match
+
+Example 2: What is the lowest numbered game against Phoenix with a record of 29-17?
+  Gold:       SELECT MIN(game) FROM table_name_61 WHERE opponent = "phoenix" AND record = "29-17"
+  Base:       ```sql SELECT MIN(game) ... WHERE opponent = 'Phoenix' AND record = '29-17'
+  Fine-tuned: SELECT MIN(game) FROM table_name_61 WHERE opponent = "phoenix" AND record = "29-17"  ✅ exact match
+
+Example 3: What is the name of the player who is Sco and moving to greenock morton in the summer?
+  Gold:       SELECT name FROM table_name_83 WHERE nat = "sco" AND transfer_window = "summer" AND moving_to = "greenock morton"
+  Base:       ```sql SELECT name ... WHERE moving_to = 'greenock morton' AND transfer_window = 'summer' AND nat = 'Sco'
+  Fine-tuned: SELECT name FROM table_name_83 WHERE nat = "sco" AND transfer_window = "summer" AND moving_to = "greenock morton"  ✅ exact match
+```
+
+The base model wraps output in markdown code fences and uses `'single quotes'` + `Title Case` values.
+The fine-tuned model produces clean SQL with exact case and quoting to match the training data.
+
+</details>
 
 <details>
 <summary>📈 Training Loss Curve (click to expand)</summary>

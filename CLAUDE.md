@@ -103,16 +103,24 @@ HuggingFace Dataset → prepare_dataset.py → data/processed/{train,test}.jsonl
 **What happened:**
 - v1: 8% exec acc (repetition loops)
 - v2: 22% exec acc (greedy decoding helped, but still loops)
-- Base Mistral-7B: 28.5% exec acc (outperformed fine-tuned v2!)
+- Base Mistral-7B: 56.5% exec acc (after fair code-fence stripping; was 28.5% in v2 era before fence fix)
 - v3 attempt 1: 0% exec acc — `no_repeat_ngram_size=4` caused gibberish
 - v3 attempt 2: 0% exec acc — `repetition_penalty=1.5` caused gibberish
 - v3 attempt 3: 0% exec acc — 3 epochs caused severe overfitting (train_loss=0.006)
 - v3 attempt 4: 0% exec acc — SentencePiece `;` token mismatch (stop token never fired)
-- **v3 final: 93% exec acc, 76% exact match, 0.921 BLEU** 🎉
+- **v3 final: 93% exec acc (100 samples), 94% (200 samples), 74% exact match, 0.925 BLEU** 🎉
 
-**Root causes found (two issues):**
+**Comparison (200 samples, Mar 24 2026):**
+| Metric | Base | Fine-Tuned v3 | Δ |
+|--------|------|---------------|----|
+| Exec Accuracy | 56.5% | **94.0%** | **+37.5pp** |
+| BLEU | 0.421 | **0.925** | +0.504 |
+| Exact Match | 1.0% | **74.0%** | +73pp |
+
+**Root causes found (three issues):**
 1. Training data had no semicolons → model never learned to generate `;` → fixed in `prepare_dataset.py`
 2. SentencePiece encodes `";"` as `▁;` (space-prefix), but model generates bare `";"` (different token ID) → fixed by scanning `get_vocab()` for all `;` variants
+3. Base model wraps SQL in `` ```sql...``` `` markdown code fences → SQLite syntax errors → fixed by stripping fences in `generate_sql()` for fair comparison
 
 **v3 Results (100 samples, Mar 24 2026):**
 | Metric | Value |
@@ -250,8 +258,8 @@ Run: `python -m pytest tests/ -v`
 |---------|----------|---------------|
 | v0 | — | 6 errors before training even started (T4 compat) |
 | v1 | 8% | Valid SQL but endless repetition loops |
-| v2 | 22% | Greedy decoding helped; still loops; base model beats it (28.5%) |
+| v2 | 22% | Greedy decoding helped; still loops; base model beats it (28.5% pre-fence-fix) |
 | v3 (failed ×4) | 0% | `no_repeat_ngram_size` + high rep_penalty = gibberish; SentencePiece token mismatch |
-| **v3 (final)** | **93%** | Fixed: `;` in training data + vocab scan for all `;` token IDs |
+| **v3 (final)** | **94%** | Fixed: `;` in training data + vocab scan for all `;` token IDs + code fence stripping. Base: 56.5% on same 200 samples. |
 
 The full story with error tables, training curves, and comparison data is in `README.md`.
