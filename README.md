@@ -1,9 +1,9 @@
 # 🧬 LLM LoRA Fine-Tuning for Text-to-SQL
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face-yellow)](https://huggingface.co/)
+[![Model on HF](https://img.shields.io/badge/%F0%9F%A4%97-Model_on_HF-yellow)](https://huggingface.co/visheshgupta/mistral-7b-text2sql-qlora)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![W&B](https://img.shields.io/badge/Weights%20%26%20Biases-Tracked-orange)](https://wandb.ai/)
+[![W&B](https://img.shields.io/badge/Weights%20%26%20Biases-Tracked-orange)](https://wandb.ai/profile/visheshgupta)
 
 Fine-tune **Mistral-7B-v0.3** (and other open-source LLMs) for **Natural Language to SQL** generation using **QLoRA** (4-bit quantization + Low-Rank Adaptation). This project documents the **full iterative journey** — from a broken first run to a working pipeline — on the **sql-create-context** dataset (WikiSQL + Spider), using free-tier Kaggle T4 GPUs, with evaluation, experiment tracking, and a deployable Gradio demo.
 
@@ -67,32 +67,19 @@ Fine-tune **Mistral-7B-v0.3** (and other open-source LLMs) for **Natural Languag
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        QLoRA Fine-Tuning                        │
-│                                                                 │
-│  ┌──────────┐    ┌───────────┐    ┌───────────────────────────┐ │
-│  │ Dataset   │───▶│  Tokenizer │───▶│  Mistral-7B (4-bit NF4)  │ │
-│  │ (SQL-     │    │  + Prompt  │    │  + LoRA Adapters (r=16)  │ │
-│  │  Create-  │    │  Template  │    │  Trainable: ~1.1% params │ │
-│  │  Context) │    └───────────┘    └──────────┬────────────────┘ │
-│  └──────────┘                                 │                  │
-│                                               ▼                  │
-│  ┌──────────────────────────────────────────────────────┐       │
-│  │  SFTTrainer (TRL)                                     │       │
-│  │  • Paged AdamW 8-bit optimizer                        │       │
-│  │  • Cosine LR schedule                                 │       │
-│  │  • Gradient checkpointing                             │       │
-│  │  • W&B logging                                        │       │
-│  └──────────────────────────────────────────────────────┘       │
-│                          │                                       │
-│                          ▼                                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐     │
-│  │ LoRA Adapter  │  │ Merged Model │  │ Gradio Demo       │     │
-│  │ (~50 MB)      │──▶│ (FP16/GGUF) │──▶│ + HF Hub Upload  │     │
-│  └──────────────┘  └──────────────┘  └───────────────────┘     │
-└─────────────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="assets/architecture.png" alt="QLoRA Pipeline Architecture" width="800"/>
+</p>
+
+**Pipeline stages:**
+
+| Stage | Module | Description |
+|-------|--------|-------------|
+| **Data** | `prepare_dataset.py` → `prompt_templates.py` → Tokenizer | Load sql-create-context (78K examples), format prompts, append `;` to completions, encode with SentencePiece |
+| **Training** | Mistral-7B (4-bit NF4) + LoRA → `SFTTrainer` | Freeze base model (3.8B params), train LoRA adapters (42M params, 1.1%), AdamW-8bit, cosine LR, W&B logging |
+| **Output** | LoRA Adapter (~50 MB) | Saved to `outputs/final-adapter`, pushed to HF Hub |
+| **Evaluation** | `evaluate_model.py` · `compare_models.py` | Execution accuracy (SQL vs SQLite), BLEU, exact match, error categorization, base vs fine-tuned comparison |
+| **Inference** | `predict.py` · `serve.py` | `SQLPredictor` class for programmatic use, Gradio web demo for interactive queries |
 
 ---
 
@@ -303,7 +290,8 @@ with exact case, quoting, and structure to match the training data.
 <details>
 <summary>📈 Training Loss Curve (click to expand)</summary>
 
-![Training Loss](assets/v1-train-loss-curve.png)
+![Training Loss v3](assets/v3-train-loss-curve.png)
+![Training Loss v1](assets/v1-train-loss-curve.png)
 
 </details>
 

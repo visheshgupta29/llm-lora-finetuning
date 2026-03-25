@@ -10,10 +10,10 @@ import pytest
 
 from src.data.prompt_templates import (
     format_prompt,
-    format_prompt_chatml,
-    format_prompt_generic,
-    format_prompt_llama3,
-    format_prompt_mistral,
+    format_chatml,
+    format_generic,
+    format_llama3_chat,
+    format_mistral_instruct,
     get_formatter,
 )
 
@@ -27,30 +27,30 @@ class TestPromptTemplates:
     SQL = "SELECT COUNT(*) FROM employees;"
 
     def test_generic_with_sql(self):
-        prompt = format_prompt_generic(self.QUESTION, self.SCHEMA, self.SQL)
+        prompt = format_generic(self.QUESTION, self.SCHEMA, self.SQL)
         assert self.QUESTION in prompt
         assert self.SCHEMA in prompt
         assert self.SQL in prompt
-        assert "### Answer:" in prompt
+        assert "### SQL Query:" in prompt
 
     def test_generic_without_sql(self):
-        prompt = format_prompt_generic(self.QUESTION, self.SCHEMA, sql=None)
+        prompt = format_generic(self.QUESTION, self.SCHEMA, sql=None)
         assert self.QUESTION in prompt
         assert self.SCHEMA in prompt
-        assert prompt.endswith("### Answer:\n")
+        assert prompt.endswith("### SQL Query:\n")
 
     def test_mistral_format(self):
-        prompt = format_prompt_mistral(self.QUESTION, self.SCHEMA, self.SQL)
+        prompt = format_mistral_instruct(self.QUESTION, self.SCHEMA, self.SQL)
         assert "[INST]" in prompt
         assert "[/INST]" in prompt
 
     def test_llama3_format(self):
-        prompt = format_prompt_llama3(self.QUESTION, self.SCHEMA, self.SQL)
+        prompt = format_llama3_chat(self.QUESTION, self.SCHEMA, self.SQL)
         assert "<|begin_of_text|>" in prompt
         assert "<|start_header_id|>user<|end_header_id|>" in prompt
 
     def test_chatml_format(self):
-        prompt = format_prompt_chatml(self.QUESTION, self.SCHEMA, self.SQL)
+        prompt = format_chatml(self.QUESTION, self.SCHEMA, self.SQL)
         assert "<|im_start|>system" in prompt
         assert "<|im_end|>" in prompt
 
@@ -61,7 +61,7 @@ class TestPromptTemplates:
             ("meta-llama/Llama-3.1-8B-Instruct", "<|begin_of_text|>"),
             ("Qwen/Qwen2-7B-Instruct", "<|im_start|>"),
             ("microsoft/Phi-3-mini-128k-instruct", "<|im_start|>"),
-            ("codellama/CodeLlama-7b-hf", "### Input:"),
+            ("codellama/CodeLlama-7b-hf", "### Task:"),
         ],
     )
     def test_get_formatter_dispatches(self, model_name, expected_keyword):
@@ -89,7 +89,7 @@ class TestPrepareDataset:
     def test_saved_jsonl_format(self, tmp_path: Path):
         """Verify that writing a formatted example as JSONL produces valid JSON."""
         sample = {
-            "text": format_prompt_generic(
+            "text": format_generic(
                 question="List all names",
                 schema="CREATE TABLE users (id INT, name TEXT);",
                 sql="SELECT name FROM users;",
@@ -137,7 +137,7 @@ class TestConfigLoading:
     def test_config_is_valid_yaml(self, config_path: Path):
         import yaml
 
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
 
         assert isinstance(cfg, dict)
@@ -148,10 +148,10 @@ class TestConfigLoading:
     def test_config_has_required_keys(self, config_path: Path):
         import yaml
 
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
 
         assert "name" in cfg["model"]
         assert "r" in cfg["lora"]
-        assert "lora_alpha" in cfg["lora"]
+        assert "alpha" in cfg["lora"]
         assert "per_device_train_batch_size" in cfg["training"]
