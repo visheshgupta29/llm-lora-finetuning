@@ -201,7 +201,7 @@ The model gets the right start (`SELECT venue ... WHERE away_team = "essendon"`)
 
 > **Surprise:** The fine-tuned model currently underperforms the base model. But this is almost entirely a repetition problem, not a quality problem. In 4 of 5 comparison examples, the fine-tuned model generates the **exact correct SQL as its first output** — then corrupts it with repeated conditions. Example: gold is `SELECT name FROM table_name_83 WHERE nat = "sco" AND transfer_window = "summer" AND moving_to = "greenock morton"` — the fine-tuned model starts with exactly that, then appends `AND nat = "sco" AND nat = "sco"...` 30+ times. Truncate at the first complete query and it would win. The base model generates shorter outputs (closer to gold length) which boosts its BLEU, and avoids repetition because it has no learned tendency to loop. **Fixing the repetition loop in v3 should push fine-tuned well above base.**
 
-> ⚠️ **Note (updated Mar 24):** The 28.5% base accuracy above was measured before discovering that the base model wraps SQL output in `` ```sql...``` `` markdown code fences, which cause SQLite syntax errors and artificially lower execution accuracy. With fence stripping (added in v3), the base model's fair accuracy is **56.5%** on 200 samples. See the v3 comparison below for the corrected measurement.
+> ⚠️ **Note (updated Mar 24):** The 28.5% base accuracy above was measured before discovering that the base model wraps SQL output in `` ```sql...``` `` markdown code fences, which cause SQLite syntax errors and artificially lower execution accuracy. With fence stripping (added in v3), the base model's fair accuracy is **57.5%** on 200 samples. See the v3 comparison below for the corrected measurement.
 
 ### v3 — Fixing the Stopping Condition (evaluated ✅)
 
@@ -228,9 +228,9 @@ The model gets the right start (`SELECT venue ... WHERE away_team = "essendon"`)
 
 | Eval Metric | Base | v2 | v3 | Δ (v3 vs base) |
 |-------------|------|----|----|------------------|
-| Execution Accuracy | 56.5% | 21.0% | **94.0%** | **+37.5pp** 🎉 |
+| Execution Accuracy | 57.5% | 21.0% | **94.0%** | **+36.5pp** 🎉 |
 | Valid SQL Rate | 100.0% | 100.0% | **100.0%** | ±0 |
-| Avg BLEU | 0.421 | 0.100 | **0.925** | **+0.504** |
+| Avg BLEU | 0.428 | 0.100 | **0.923** | **+0.495** |
 | Exact Match | 1.0% | 0.0% | **74.0%** | **+73.0pp** |
 
 **v3 training result (1 epoch, 1,250 steps, Mar 23–24, 2026):**
@@ -251,30 +251,52 @@ The model gets the right start (`SELECT venue ... WHERE away_team = "essendon"`)
 | `runtime_error` | 3 | Minor edge cases |
 | `wrong_column` | 1 | Correct table, wrong column |
 
-> **Key result:** Fine-tuned v3 (94%) outperforms the base model (56.5%) by **+37.5pp** on 200 samples. The model generates exact gold SQL 74% of the time, and BLEU jumped from 0.42 to 0.93. The fix was three-fold: (1) train with `;` in completions so the model learns to stop, (2) scan the full tokenizer vocab for all `;` token variants (SentencePiece encodes `▁;` vs bare `;` as different tokens), and (3) strip markdown code fences from the base model's output for fair comparison.
+> **Key result:** Fine-tuned v3 (94%) outperforms the base model (57.5%) by **+36.5pp** on 200 samples. The model generates exact gold SQL 74% of the time, and BLEU jumped from 0.43 to 0.92. The fix was three-fold: (1) train with `;` in completions so the model learns to stop, (2) scan the full tokenizer vocab for all `;` token variants (SentencePiece encodes `▁;` vs bare `;` as different tokens), and (3) strip markdown code fences from the base model's output for fair comparison.
 
 <details>
 <summary>🔍 v3 comparison examples (click to expand)</summary>
 
 ```
-Example 1: When Essendon played away; where did they play?
+Example 1 (case mismatch — both execute correctly):
+  Q: When Essendon played away; where did they play?
   Gold:       SELECT venue FROM table_name_50 WHERE away_team = "essendon"
-  Base:       ```sql SELECT venue FROM table_name_50 WHERE away_team = 'Essendon' ```
+  Base:       SELECT venue FROM table_name_50 WHERE away_team = 'Essendon'
   Fine-tuned: SELECT venue FROM table_name_50 WHERE away_team = "essendon"  ✅ exact match
 
-Example 2: What is the lowest numbered game against Phoenix with a record of 29-17?
+Example 2 (base uses wrong structure — SELECT * instead of MIN):
+  Q: What is the lowest numbered game against Phoenix with a record of 29-17?
   Gold:       SELECT MIN(game) FROM table_name_61 WHERE opponent = "phoenix" AND record = "29-17"
-  Base:       ```sql SELECT MIN(game) ... WHERE opponent = 'Phoenix' AND record = '29-17'
+  Base:       SELECT MIN(game) FROM table_name_61 WHERE opponent = 'Phoenix' AND record = '29-17'
   Fine-tuned: SELECT MIN(game) FROM table_name_61 WHERE opponent = "phoenix" AND record = "29-17"  ✅ exact match
 
-Example 3: What is the name of the player who is Sco and moving to greenock morton in the summer?
+Example 3 (multi-condition WHERE — base reorders, fine-tuned matches exactly):
+  Q: What is the name of the player who is Sco and moving to greenock morton in the summer?
   Gold:       SELECT name FROM table_name_83 WHERE nat = "sco" AND transfer_window = "summer" AND moving_to = "greenock morton"
-  Base:       ```sql SELECT name ... WHERE moving_to = 'greenock morton' AND transfer_window = 'summer' AND nat = 'Sco'
+  Base:       SELECT name FROM table_name_83 WHERE moving_to = 'greenock morton' AND transfer_window = 'summer' AND nat = 'Sco'
   Fine-tuned: SELECT name FROM table_name_83 WHERE nat = "sco" AND transfer_window = "summer" AND moving_to = "greenock morton"  ✅ exact match
+
+Example 4 (complex JOIN — base uses verbose style, fine-tuned matches gold exactly):
+  Q: Of all the contestants who got voted, what is the contestant number and name of the one who got least votes?
+  Gold:       SELECT T1.contestant_number, T1.contestant_name FROM contestants AS T1
+              JOIN votes AS T2 ON T1.contestant_number = T2.contestant_number
+              GROUP BY T1.contestant_number ORDER BY COUNT(*) LIMIT 1
+  Base:       SELECT contestants.contestant_number, contestants.contestant_name
+              FROM contestants INNER JOIN votes ON contestants.contestant_number = votes.contestant_number
+              GROUP BY contestants.contestant_number ORDER BY COUNT(votes.contestant_number) ASC LIMIT 1
+  Fine-tuned: SELECT T1.contestant_number, T1.contestant_name FROM contestants AS T1
+              JOIN votes AS T2 ON T1.contestant_number = T2.contestant_number
+              GROUP BY T1.contestant_number ORDER BY COUNT(*) LIMIT 1  ✅ exact match
+
+Example 5 (both models produce identical correct SQL):
+  Q: What are the countries of mountains with height bigger than 5000?
+  Gold:       SELECT Country FROM mountain WHERE Height > 5000
+  Base:       SELECT Country FROM mountain WHERE Height > 5000  ✅ exact match
+  Fine-tuned: SELECT Country FROM mountain WHERE Height > 5000  ✅ exact match
 ```
 
-The base model wraps output in markdown code fences and uses `'single quotes'` + `Title Case` values.
-The fine-tuned model produces clean SQL with exact case and quoting to match the training data.
+The base model commonly uses `'single quotes'` + `Title Case` values (e.g., `'Essendon'` vs `"essendon"`),
+`SELECT *` instead of specific columns, and verbose JOIN syntax. The fine-tuned model produces clean SQL
+with exact case, quoting, and structure to match the training data.
 
 </details>
 
