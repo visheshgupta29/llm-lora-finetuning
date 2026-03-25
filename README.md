@@ -620,6 +620,10 @@ Launches an interactive web UI where you can:
 - See the generated SQL with syntax highlighting
 - Compare base model vs. fine-tuned output side-by-side
 
+<p align="center">
+  <img src="assets/gradio_demo.png" alt="Gradio Demo" width="800"/>
+</p>
+
 ---
 
 ## 📁 Project Structure
