@@ -103,18 +103,18 @@ HuggingFace Dataset → prepare_dataset.py → data/processed/{train,test}.jsonl
 **What happened:**
 - v1: 8% exec acc (repetition loops)
 - v2: 22% exec acc (greedy decoding helped, but still loops)
-- Base Mistral-7B: 56.5% exec acc (after fair code-fence stripping; was 28.5% in v2 era before fence fix)
+- Base Mistral-7B: 57.5% exec acc (after fair code-fence stripping; was 28.5% in v2 era before fence fix)
 - v3 attempt 1: 0% exec acc — `no_repeat_ngram_size=4` caused gibberish
 - v3 attempt 2: 0% exec acc — `repetition_penalty=1.5` caused gibberish
 - v3 attempt 3: 0% exec acc — 3 epochs caused severe overfitting (train_loss=0.006)
 - v3 attempt 4: 0% exec acc — SentencePiece `;` token mismatch (stop token never fired)
-- **v3 final: 93% exec acc (100 samples), 94% (200 samples), 74% exact match, 0.925 BLEU** 🎉
+- **v3 final: 93% exec acc (100 samples), 94% (200 samples), 74% exact match, 0.923 BLEU** 🎉
 
 **Comparison (200 samples, Mar 24 2026):**
 | Metric | Base | Fine-Tuned v3 | Δ |
 |--------|------|---------------|----|
-| Exec Accuracy | 56.5% | **94.0%** | **+37.5pp** |
-| BLEU | 0.421 | **0.925** | +0.504 |
+| Exec Accuracy | 57.5% | **94.0%** | **+36.5pp** |
+| BLEU | 0.428 | **0.923** | +0.495 |
 | Exact Match | 1.0% | **74.0%** | +73pp |
 
 **Root causes found (three issues):**
@@ -260,6 +260,6 @@ Run: `python -m pytest tests/ -v`
 | v1 | 8% | Valid SQL but endless repetition loops |
 | v2 | 22% | Greedy decoding helped; still loops; base model beats it (28.5% pre-fence-fix) |
 | v3 (failed ×4) | 0% | `no_repeat_ngram_size` + high rep_penalty = gibberish; SentencePiece token mismatch |
-| **v3 (final)** | **94%** | Fixed: `;` in training data + vocab scan for all `;` token IDs + code fence stripping. Base: 56.5% on same 200 samples. |
+| **v3 (final)** | **94%** | Fixed: `;` in training data + vocab scan for all `;` token IDs + code fence stripping. Base: 57.5% on same 200 samples. |
 
 The full story with error tables, training curves, and comparison data is in `README.md`.

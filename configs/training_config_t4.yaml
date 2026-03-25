@@ -30,7 +30,7 @@
 #    Saved adapter: outputs/final-adapter
 #    Eval: exec_acc 22%, BLEU 0.096, valid SQL 100%
 #    Base comparison (200 samples): base 28.5% > fine-tuned 21.0%
-#    (Note: 28.5% was pre-fence-stripping; true base accuracy ~56.5%)
+#    (Note: 28.5% was pre-fence-stripping; true base accuracy ~57.5%)
 #    Root cause: repetition loops corrupt otherwise-correct predictions
 #
 #  ── v3 Changes (this config) ──────────────────────────────
@@ -47,7 +47,7 @@
 #    Train loss: 0.03789 | Best eval loss: 0.02541
 #    Peak VRAM: 5.37 GB | Runtime: 4h 45min (17,110 s)
 #    Eval: exec_acc 93%, BLEU 0.921, exact_match 76%, valid SQL 100%
-#    Comparison (200 samples): fine-tuned 94% vs base 56.5% (+37.5pp)
+#    Comparison (200 samples): fine-tuned 94% vs base 57.5% (+36.5pp)
 #    Note: base model wraps SQL in ```sql fences — stripped for fair comparison
 #    Additional fix: scan tokenizer vocab for ALL ';' token variants
 #    (SentencePiece ▁; vs bare ; have different token IDs)
